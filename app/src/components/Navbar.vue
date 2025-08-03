@@ -43,9 +43,9 @@ const route = useRoute();
 
 const menuItems = [
   { section: 'dashboard', label: 'Dashboard', icon: 'fas fa-tachometer-alt' },
-  { section: 'history', label: 'History', icon: 'fas fa-tachometer-alt' },
-  { section: 'routes', label: 'Routes', icon: 'fas fa-list' },
-  { section: 'timeline', label: 'Timeline', icon: 'fas fa-chart-area' },
+  { section: 'errors', label: 'Error Analysis', icon: 'fas fa-exclamation-triangle' },
+  { section: 'timeline', label: 'Requests', icon: 'fas fa-chart-area' },
+  { section: 'routes', label: 'Request Time', icon: 'fas fa-list' },
 ];
 
 const currentSection = ref('dashboard');

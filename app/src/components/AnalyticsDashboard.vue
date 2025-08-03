@@ -43,6 +43,11 @@
       <div class="panel col-5"><div class="panel-header"><div class="panel-title">Response Time Distribution</div></div><div class="panel-content"><div class="chart-container medium-chart"><canvas ref="responseDistCanvas"></canvas></div></div></div>
       <div class="panel col-6"><div class="panel-header"><div class="panel-title">Top 10 Slowest Endpoints</div></div><div class="panel-content"><div class="chart-container medium-chart"><canvas ref="slowestEndpointsCanvas"></canvas></div></div></div>
       <div class="panel col-6"><div class="panel-header"><div class="panel-title">Top 10 Error Endpoints</div></div><div class="panel-content"><div class="chart-container medium-chart"><canvas ref="errorEndpointsCanvas"></canvas></div></div></div>
+      
+      <!-- New Charts -->
+      <div class="panel col-6"><div class="panel-header"><div class="panel-title">Average Response Time Over Time</div></div><div class="panel-content"><div class="chart-container medium-chart"><canvas ref="avgResponseTimeCanvas"></canvas></div></div></div>
+      <div class="panel col-6"><div class="panel-header"><div class="panel-title">Total Requests Over Time</div></div><div class="panel-content"><div class="chart-container medium-chart"><canvas ref="totalRequestsCanvas"></canvas></div></div></div>
+      
       <div class="panel col-4"><div class="panel-header"><div class="panel-title">Status Codes</div></div><div class="panel-content"><div class="chart-container small-chart"><canvas ref="statusCanvas"></canvas></div></div></div>
       <div class="panel col-4"><div class="panel-header"><div class="panel-title">HTTP Methods</div></div><div class="panel-content"><div class="chart-container small-chart"><canvas ref="methodCanvas"></canvas></div></div></div>
       <div class="panel col-4"><div class="panel-header"><div class="panel-title">Traffic by Hour</div></div><div class="panel-content"><div class="chart-container small-chart"><canvas ref="trafficHourCanvas"></canvas></div></div></div>
@@ -70,9 +75,11 @@ const methodCanvas = ref(null);
 const trafficHourCanvas = ref(null);
 const slowestEndpointsCanvas = ref(null);
 const errorEndpointsCanvas = ref(null);
+const avgResponseTimeCanvas = ref(null);
+const totalRequestsCanvas = ref(null);
 
 // Chart Instances
-let perfTimelineChart, rpsTimelineChart, responseDistChart, statusChart, methodChart, trafficHourChart, slowestEndpointsChart, errorEndpointsChart;
+let perfTimelineChart, rpsTimelineChart, responseDistChart, statusChart, methodChart, trafficHourChart, slowestEndpointsChart, errorEndpointsChart, avgResponseTimeChart, totalRequestsChart;
 
 // Computed Properties
 const uniqueEndpoints = computed(() => [...new Set(historyData.value.map(d => d.endpoint))]);
@@ -127,6 +134,29 @@ function initCharts() {
   trafficHourChart = new Chart(trafficHourCanvas.value, { type: 'bar', options: commonOptions });
   slowestEndpointsChart = new Chart(slowestEndpointsCanvas.value, { type: 'bar', options: { ...commonOptions, indexAxis: 'y' } });
   errorEndpointsChart = new Chart(errorEndpointsCanvas.value, { type: 'bar', options: { ...commonOptions, indexAxis: 'y' } });
+  
+  // New charts initialization
+  avgResponseTimeChart = new Chart(avgResponseTimeCanvas.value, { 
+    type: 'line', 
+    options: { 
+      ...commonOptions, 
+      scales: {
+        x: { type: 'time', time: { unit: 'hour' }, grid: { color: '#262626' } },
+        y: { beginAtZero: true, grid: { color: '#262626' }, title: { display: true, text: 'Response Time (ms)' } }
+      }
+    } 
+  });
+  
+  totalRequestsChart = new Chart(totalRequestsCanvas.value, { 
+    type: 'line', 
+    options: { 
+      ...commonOptions, 
+      scales: {
+        x: { type: 'time', time: { unit: 'hour' }, grid: { color: '#262626' } },
+        y: { beginAtZero: true, grid: { color: '#262626' }, title: { display: true, text: 'Total Requests' } }
+      }
+    } 
+  });
 }
 
 function updateAllCharts() {
@@ -280,6 +310,41 @@ function updateAllCharts() {
     const errorData = sortedByError.length > 0 ? sortedByError.map(([,v])=>(v.errors/v.count)*100) : [0];
     errorEndpointsChart.data = { labels: errorLabels, datasets: [{ label: 'Error Rate (%)', data: errorData, backgroundColor: '#f2495c' }]};
     errorEndpointsChart.update();
+
+    // Update new charts - Average Response Time Over Time
+    avgResponseTimeChart.data = { 
+        labels, 
+        datasets: [{ 
+            label: 'Average Response Time (ms)', 
+            data: labels.map(l => {
+                const stats = hourlyStats[l];
+                return stats.times.length > 0 ? (stats.times.reduce((s, t) => s + t, 0) / stats.count) : 0;
+            }), 
+            borderColor: '#52c5f7', 
+            backgroundColor: 'rgba(82, 197, 247, 0.1)',
+            fill: true,
+            tension: 0.3,
+            spanGaps: false,
+            pointRadius: 2
+        }]
+    };
+    avgResponseTimeChart.update();
+
+    // Update new charts - Total Requests Over Time
+    totalRequestsChart.data = { 
+        labels, 
+        datasets: [{ 
+            label: 'Total Requests', 
+            data: labels.map(l => hourlyStats[l].count), 
+            borderColor: '#73bf69', 
+            backgroundColor: 'rgba(115, 191, 105, 0.1)',
+            fill: true,
+            tension: 0.3,
+            spanGaps: false,
+            pointRadius: 2
+        }]
+    };
+    totalRequestsChart.update();
 }
 
 // Lifecycle

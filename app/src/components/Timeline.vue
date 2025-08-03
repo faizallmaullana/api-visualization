@@ -1,38 +1,46 @@
 <template>
   <div class="timeline-section">
-    <!-- Timeline Filters -->
-    <div class="timeline-filters">
-      <div class="timeline-filter-group">
-        <label class="timeline-filter-label">Time Range</label>
-        <select id="timeline-time-range" class="analytics-select" v-model="filters.timeRange" @change="loadTimelineData">
-          <option value="1h">Last 1 Hour</option>
-          <option value="6h">Last 6 Hours</option>
-          <option value="24h">Last 24 Hours</option>
-          <option value="168h">Last 7 Days</option>
-        </select>
-      </div>
-      <div class="timeline-filter-group">
-        <label class="timeline-filter-label">Endpoint Filter</label>
-        <select id="timeline-endpoint-filter" class="analytics-select" v-model="filters.endpoint" @change="loadTimelineData">
-          <option value="all">All Endpoints</option>
-          <option v-for="ep in uniqueEndpoints" :key="ep" :value="ep">{{ ep }}</option>
-        </select>
-      </div>
-      <div class="timeline-filter-group">
-        <label class="timeline-filter-label">Method Filter</label>
-        <select id="timeline-method-filter" class="analytics-select" v-model="filters.method" @change="loadTimelineData">
-          <option value="all">All Methods</option>
-          <option value="GET">GET</option>
-          <option value="POST">POST</option>
-          <option value="PUT">PUT</option>
-          <option value="DELETE">DELETE</option>
-          <option value="PATCH">PATCH</option>
-        </select>
-      </div>
-      <button id="timeline-refresh" class="analytics-button" @click="loadTimelineData">
-        <i class="fas fa-sync-alt"></i> Refresh
-      </button>
-    </div>
+    <!-- Page Header -->
+    <PageHeader
+      page-title="Request Timeline Analysis"
+      page-description="Detailed timeline view of API requests with performance metrics and patterns"
+      page-icon="fas fa-chart-area"
+      :stats="headerStats"
+      :refreshing="isRefreshing"
+      :show-export="true"
+      @refresh="handleRefresh"
+      @export="handleExport"
+    >
+      <template #filters>
+        <div class="timeline-filter-group">
+          <label class="timeline-filter-label">Time Range</label>
+          <select id="timeline-time-range" class="analytics-select" v-model="filters.timeRange" @change="loadTimelineData">
+            <option value="1h">Last 1 Hour</option>
+            <option value="6h">Last 6 Hours</option>
+            <option value="24h">Last 24 Hours</option>
+            <option value="168h">Last 7 Days</option>
+          </select>
+        </div>
+        <div class="timeline-filter-group">
+          <label class="timeline-filter-label">Endpoint Filter</label>
+          <select id="timeline-endpoint-filter" class="analytics-select" v-model="filters.endpoint" @change="loadTimelineData">
+            <option value="all">All Endpoints</option>
+            <option v-for="ep in uniqueEndpoints" :key="ep" :value="ep">{{ ep }}</option>
+          </select>
+        </div>
+        <div class="timeline-filter-group">
+          <label class="timeline-filter-label">Method Filter</label>
+          <select id="timeline-method-filter" class="analytics-select" v-model="filters.method" @change="loadTimelineData">
+            <option value="all">All Methods</option>
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="DELETE">DELETE</option>
+            <option value="PATCH">PATCH</option>
+          </select>
+        </div>
+      </template>
+    </PageHeader>
 
     <!-- Timeline Stats -->
     <div class="timeline-stats">
@@ -71,8 +79,10 @@ import { ref, computed, onMounted, nextTick } from 'vue';
 import Chart from 'chart.js/auto';
 import 'chartjs-adapter-date-fns';
 import { useApi } from '../service/api';
+import PageHeader from './PageHeader.vue';
 
 const historyData = ref([]);
+const isRefreshing = ref(false);
 const filters = ref({
   timeRange: '24h',
   endpoint: 'all',
@@ -113,6 +123,32 @@ const groupedEndpoints = computed(() => {
     groups[key].data.push(d);
   });
   return Object.values(groups);
+});
+
+// Header stats for PageHeader component
+const headerStats = computed(() => {
+  return [
+    {
+      label: 'Total Requests',
+      value: timelineMetrics.value.totalRequests.toLocaleString(),
+      type: 'info'
+    },
+    {
+      label: 'Unique Endpoints',
+      value: timelineMetrics.value.uniqueEndpoints.toString(),
+      type: 'info'
+    },
+    {
+      label: 'Error Rate',
+      value: `${timelineMetrics.value.errorRate}%`,
+      type: timelineMetrics.value.errorRate > 10 ? 'critical' : timelineMetrics.value.errorRate > 5 ? 'warning' : 'success'
+    },
+    {
+      label: 'Avg Response',
+      value: `${timelineMetrics.value.avgResponse}ms`,
+      type: timelineMetrics.value.avgResponse > 500 ? 'critical' : timelineMetrics.value.avgResponse > 200 ? 'warning' : 'success'
+    }
+  ];
 });
 
 // Load timeline data from history API
@@ -256,6 +292,31 @@ const updateTimelineCharts = () => {
       }
     });
   });
+};
+
+// Handler functions
+const handleRefresh = async () => {
+  isRefreshing.value = true;
+  await loadTimelineData();
+  isRefreshing.value = false;
+};
+
+const handleExport = () => {
+  const data = {
+    timestamp: new Date().toISOString(),
+    filters: filters.value,
+    metrics: timelineMetrics.value,
+    groupedData: groupedEndpoints.value,
+    data: historyData.value
+  };
+  
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `timeline-analysis-${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
 };
 
 onMounted(() => {

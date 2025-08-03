@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -122,18 +124,74 @@ type RequestRecord struct {
 	Timestamp    time.Time
 }
 
-func main() {
-	// Initialize GORM SQLite
-	gdb, err := gorm.Open(sqlite.Open("data.db"), &gorm.Config{})
-	if err != nil {
-		log.Fatalf("Failed to open GORM DB: %v", err)
-	}
-	// Auto migrate schema
-	if err := gdb.AutoMigrate(&RequestRecord{}); err != nil {
-		log.Fatalf("AutoMigrate failed: %v", err)
+// dbConnections caches database connections for each month.
+var dbConnections = make(map[string]*gorm.DB)
+var dbMutex = &sync.Mutex{}
+
+// getDbForMonth retrieves or creates a database connection for a specific month.
+// The month format should be "YYYY-MM".
+func getDbForMonth(month string) (*gorm.DB, error) {
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+
+	// Check cache first
+	if db, ok := dbConnections[month]; ok {
+		return db, nil
 	}
 
-	// Statistics in-memory
+	// Create database directory if it doesn't exist
+	dbPath := fmt.Sprintf("database/%s.db", month)
+	if err := os.MkdirAll("database", os.ModePerm); err != nil {
+		return nil, fmt.Errorf("failed to create database directory: %w", err)
+	}
+
+	// Open new connection
+	gdb, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to open GORM DB for month %s: %w", month, err)
+	}
+
+	// Auto migrate schema
+	if err := gdb.AutoMigrate(&RequestRecord{}); err != nil {
+		return nil, fmt.Errorf("AutoMigrate failed for month %s: %w", month, err)
+	}
+
+	// Cache the connection
+	dbConnections[month] = gdb
+	log.Printf("Successfully connected to and migrated database: %s", dbPath)
+
+	return gdb, nil
+}
+
+// getMonthsInRange calculates the list of months (YYYY-MM) a given time range spans.
+func getMonthsInRange(start, end time.Time) []string {
+	monthsMap := make(map[string]struct{})
+
+	// Normalize start to the beginning of its month
+	current := time.Date(start.Year(), start.Month(), 1, 0, 0, 0, 0, start.Location())
+
+	// Iterate from the start month until we pass the end month
+	for !current.After(end) {
+		monthStr := current.Format("2006-01")
+		monthsMap[monthStr] = struct{}{}
+		current = current.AddDate(0, 1, 0)
+	}
+
+	// Convert map keys to slice
+	result := make([]string, 0, len(monthsMap))
+	for month := range monthsMap {
+		result = append(result, month)
+	}
+	return result
+}
+
+func main() {
+	// Create the main database directory on startup.
+	if err := os.MkdirAll("database", os.ModePerm); err != nil {
+		log.Fatalf("Failed to create database directory on startup: %v", err)
+	}
+
+	// Statistics in-memory (this part remains the same)
 	statsManager := NewStatsManager()
 
 	// Gin router
@@ -150,6 +208,16 @@ func main() {
 			return
 		}
 		statsManager.RecordRequest(data)
+
+		// Get current month and the corresponding database connection
+		currentMonth := time.Now().Format("2006-01")
+		gdb, err := getDbForMonth(currentMonth)
+		if err != nil {
+			log.Printf("Failed to get DB for month %s: %v", currentMonth, err)
+			c.String(500, "Internal server error: could not access database")
+			return
+		}
+
 		// Insert into DB with GORM
 		rec := RequestRecord{
 			Endpoint:     data.Endpoint,
@@ -160,7 +228,7 @@ func main() {
 			Timestamp:    time.Now(),
 		}
 		if err := gdb.Create(&rec).Error; err != nil {
-			log.Printf("GORM insert error: %v", err)
+			log.Printf("GORM insert error into %s.db: %v", currentMonth, err)
 		}
 		c.String(200, "Recorded")
 	})
@@ -171,81 +239,96 @@ func main() {
 	})
 
 	router.GET("/api/history", func(c *gin.Context) {
-		// Support optional month filter (format YYYY-MM)
-		if monthStr := c.Query("month"); monthStr != "" {
-			// Parse month and fetch full month range
-			t, err := time.Parse("2006-01", monthStr)
-			if err == nil {
-				start := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.Local)
-				end := start.AddDate(0, 1, 0)
-				// GORM query
-				var recs []RequestRecord
-				if err := gdb.Where("timestamp >= ? AND timestamp < ?", start, end).Find(&recs).Error; err != nil {
-					c.String(500, "DB query error")
-					return
-				}
-				// Map to VisualizationData and initialize slice to avoid null
-				results := make([]VisualizationData, 0, len(recs))
-				for _, r := range recs {
-					results = append(results, VisualizationData{
-						Endpoint:     r.Endpoint,
-						Method:       r.Method,
-						StatusCode:   r.StatusCode,
-						ResponseTime: r.ResponseTime,
-						Error:        r.Error,
-						Timestamp:    r.Timestamp,
-					})
-				}
-				c.JSON(200, results)
-				return
+		var startTime, endTime time.Time
+		now := time.Now()
+		var timeRangeSpecified bool
+
+		// Priority 1: Specific date range from query parameters
+		startDateStr := c.Query("startDate")
+		endDateStr := c.Query("endDate")
+		if startDateStr != "" && endDateStr != "" {
+			start, err1 := time.Parse("2006-01-02", startDateStr)
+			end, err2 := time.Parse("2006-01-02", endDateStr)
+
+			if err1 == nil && err2 == nil {
+				startTime = start
+				// Set time to the end of the day for the end date
+				endTime = end.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+				timeRangeSpecified = true
 			}
 		}
-		// Else use timeRange query, capped to max 1 month
-		timeRange := c.Query("timeRange")
-		dur, err := time.ParseDuration(timeRange)
-		if err != nil || dur <= 0 {
-			dur = time.Hour
+
+		// Priority 2: Relative time range (default behavior)
+		if !timeRangeSpecified {
+			timeRange := c.Query("timeRange")
+			dur, err := time.ParseDuration(timeRange)
+			if err != nil || dur <= 0 {
+				dur = time.Hour // Default to 1 hour
+			}
+			// Set a reasonable max duration to prevent abuse, e.g., 30 days
+			maxDur := time.Hour * 24 * 30
+			if dur > maxDur {
+				dur = maxDur
+			}
+			endTime = now
+			startTime = now.Add(-dur)
 		}
-		maxDur := time.Hour * 24 * 30
-		if dur > maxDur {
-			dur = maxDur
+
+		// Get all months that the date range spans
+		monthsToQuery := getMonthsInRange(startTime, endTime)
+		var allResults []VisualizationData
+
+		// Query each relevant monthly database
+		for _, month := range monthsToQuery {
+			gdb, err := getDbForMonth(month)
+			if err != nil {
+				log.Printf("Could not get DB for month %s, skipping: %v", month, err)
+				continue
+			}
+
+			var recs []RequestRecord
+			q := gdb.Model(&RequestRecord{}).Where("timestamp BETWEEN ? AND ?", startTime, endTime)
+
+			// Apply other filters
+			if ep := c.Query("endpoint"); ep != "" && ep != "all" {
+				q = q.Where("endpoint = ?", ep)
+			}
+			if m := c.Query("method"); m != "" && m != "all" {
+				q = q.Where("method = ?", m)
+			}
+
+			if err := q.Order("timestamp desc").Find(&recs).Error; err != nil {
+				log.Printf("DB query error for month %s: %v", month, err)
+				continue
+			}
+
+			// Map and append results
+			for _, r := range recs {
+				allResults = append(allResults, VisualizationData{
+					Endpoint:     r.Endpoint,
+					Method:       r.Method,
+					StatusCode:   r.StatusCode,
+					ResponseTime: r.ResponseTime,
+					Error:        r.Error,
+					Timestamp:    r.Timestamp,
+				})
+			}
 		}
-		cutoff := time.Now().Add(-dur)
-		// Build GORM query
-		q := gdb.Where("timestamp >= ?", cutoff)
-		if ep := c.Query("endpoint"); ep != "" && ep != "all" {
-			q = q.Where("endpoint = ?", ep)
-		}
-		if m := c.Query("method"); m != "" && m != "all" {
-			q = q.Where("method = ?", m)
-		}
-		var recs []RequestRecord
-		if err := q.Find(&recs).Error; err != nil {
-			c.String(500, "DB query error")
-			return
-		}
-		// Map to VisualizationData and initialize slice
-		results := make([]VisualizationData, 0, len(recs))
-		for _, r := range recs {
-			results = append(results, VisualizationData{
-				Endpoint:     r.Endpoint,
-				Method:       r.Method,
-				StatusCode:   r.StatusCode,
-				ResponseTime: r.ResponseTime,
-				Error:        r.Error,
-				Timestamp:    r.Timestamp,
-			})
-		}
-		c.JSON(200, results)
+
+		// Sort final combined results by timestamp descending
+		sort.Slice(allResults, func(i, j int) bool {
+			return allResults[i].Timestamp.After(allResults[j].Timestamp)
+		})
+
+		c.JSON(200, allResults)
 	})
 
 	// Serve SPA index.html for root
 	router.GET("/", func(c *gin.Context) {
 		c.File("app/dist/index.html")
 	})
-	// Fallback for any other route (excluding API) using NoRoute to avoid wildcard conflicts
+	// Fallback for any other route (excluding API)
 	router.NoRoute(func(c *gin.Context) {
-		// If the path starts with /api/, respond 404
 		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
 			c.JSON(404, gin.H{"error": "Not Found"})
 		} else {

@@ -1,40 +1,48 @@
 <template>
   <div class="routes-section">
-    <!-- Routes Filters -->
-    <div class="analytics-filters">
-      <div class="analytics-filter-group">
-        <label class="analytics-filter-label">Method Filter</label>
-        <select v-model="filters.method" @change="loadRoutesData" class="analytics-select">
-          <option value="all">All Methods</option>
-          <option value="GET">GET</option>
-          <option value="POST">POST</option>
-          <option value="PUT">PUT</option>
-          <option value="DELETE">DELETE</option>
-          <option value="PATCH">PATCH</option>
-        </select>
-      </div>
-      <div class="analytics-filter-group">
-        <label class="analytics-filter-label">Time Range</label>
-        <select v-model="filters.timeRange" @change="loadRoutesData" class="analytics-select">
-          <option value="1h">Last 1 Hour</option>
-          <option value="6h">Last 6 Hours</option>
-          <option value="24h">Last 24 Hours</option>
-          <option value="168h">Last 7 Days</option>
-        </select>
-      </div>
-      <div class="analytics-filter-group">
-        <label class="analytics-filter-label">Sort By</label>
-        <select v-model="filters.sortBy" @change="updateRoutesList" class="analytics-select">
-          <option value="requests">Total Requests</option>
-          <option value="response_time">Response Time</option>
-          <option value="errors">Error Count</option>
-          <option value="endpoint">Endpoint Name</option>
-        </select>
-      </div>
-      <button @click="loadRoutesData" class="analytics-button">
-        <i class="fas fa-sync-alt"></i> Refresh
-      </button>
-    </div>
+    <!-- Page Header -->
+    <PageHeader
+      page-title="Request Time Analysis"
+      page-description="Analyze response times and performance metrics by endpoint and method"
+      page-icon="fas fa-list"
+      :stats="headerStats"
+      :refreshing="isRefreshing"
+      :show-export="true"
+      @refresh="handleRefresh"
+      @export="handleExport"
+    >
+      <template #filters>
+        <div class="analytics-filter-group">
+          <label class="analytics-filter-label">Method Filter</label>
+          <select v-model="filters.method" @change="loadRoutesData" class="analytics-select">
+            <option value="all">All Methods</option>
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="DELETE">DELETE</option>
+            <option value="PATCH">PATCH</option>
+          </select>
+        </div>
+        <div class="analytics-filter-group">
+          <label class="analytics-filter-label">Time Range</label>
+          <select v-model="filters.timeRange" @change="loadRoutesData" class="analytics-select">
+            <option value="1h">Last 1 Hour</option>
+            <option value="6h">Last 6 Hours</option>
+            <option value="24h">Last 24 Hours</option>
+            <option value="168h">Last 7 Days</option>
+          </select>
+        </div>
+        <div class="analytics-filter-group">
+          <label class="analytics-filter-label">Sort By</label>
+          <select v-model="filters.sortBy" @change="updateRoutesList" class="analytics-select">
+            <option value="requests">Total Requests</option>
+            <option value="response_time">Response Time</option>
+            <option value="errors">Error Count</option>
+            <option value="endpoint">Endpoint Name</option>
+          </select>
+        </div>
+      </template>
+    </PageHeader>
 
     <!-- Routes Overview Stats -->
     <div class="dashboard-grid">
@@ -126,8 +134,10 @@
 import { ref, computed, onMounted, nextTick } from 'vue';
 import Chart from 'chart.js/auto';
 import { useApi } from '../service/api';
+import PageHeader from './PageHeader.vue';
 
 const historyData = ref([]);
+const isRefreshing = ref(false);
 const filters = ref({
   method: 'all',
   timeRange: '24h',
@@ -207,6 +217,63 @@ const routeMetrics = computed(() => {
     errorRate
   };
 });
+
+// Header stats for PageHeader component
+const headerStats = computed(() => {
+  const routes = processedRoutes.value;
+  const totalRequests = routes.reduce((sum, r) => sum + r.count, 0);
+  const totalErrors = routes.reduce((sum, r) => sum + r.errorCount, 0);
+  const avgResponseTime = routes.length ? 
+    routes.reduce((sum, r) => sum + (r.avgResponseTime * r.count), 0) / totalRequests : 0;
+  const errorRate = totalRequests ? ((totalErrors / totalRequests) * 100).toFixed(1) : 0;
+  
+  return [
+    {
+      label: 'Total Routes',
+      value: routes.length.toString(),
+      type: 'info'
+    },
+    {
+      label: 'Total Requests',
+      value: totalRequests.toLocaleString(),
+      type: 'info'
+    },
+    {
+      label: 'Avg Response',
+      value: `${avgResponseTime.toFixed(1)}ms`,
+      type: avgResponseTime > 500 ? 'critical' : avgResponseTime > 200 ? 'warning' : 'success'
+    },
+    {
+      label: 'Error Rate',
+      value: `${errorRate}%`,
+      type: errorRate > 10 ? 'critical' : errorRate > 5 ? 'warning' : 'success'
+    }
+  ];
+});
+
+// Handler functions
+const handleRefresh = async () => {
+  isRefreshing.value = true;
+  await loadRoutesData();
+  isRefreshing.value = false;
+};
+
+const handleExport = () => {
+  const data = {
+    timestamp: new Date().toISOString(),
+    filters: filters.value,
+    routes: sortedRoutes.value,
+    data: historyData.value
+  };
+  
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `routes-analysis-${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
 
 const loadRoutesData = async () => {
   try {
