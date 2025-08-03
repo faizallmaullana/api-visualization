@@ -1,0 +1,1753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Analytics Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+        
+        :root {
+            --grafana-bg: #0f1419;
+            --grafana-bg-light: #181b1f;
+            --grafana-sidebar-bg: #111217;
+            --grafana-panel-bg: #1e2028;
+            --grafana-border: #262626;
+            --grafana-text: #d9d9d9;
+            --grafana-text-muted: #8e8e8e;
+            --grafana-blue: #52c5f7;
+            --grafana-green: #73bf69;
+            --grafana-orange: #ffb74d;
+            --grafana-red: #f2495c;
+            --grafana-purple: #b877d9;
+            --grafana-yellow: #fade2a;
+            --grafana-hover: #262626;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: var(--grafana-bg);
+            color: var(--grafana-text);
+            overflow-x: hidden;
+        }
+
+        /* Sidebar Navigation */
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 0;
+            height: 100vh;
+            width: 55px;
+            background-color: var(--grafana-sidebar-bg);
+            border-right: 1px solid var(--grafana-border);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 15px 0;
+            z-index: 1000;
+            transition: width 0.3s ease;
+        }
+
+        .sidebar:hover {
+            width: 200px;
+        }
+
+        .sidebar-item {
+            width: 100%;
+            height: 45px;
+            display: flex;
+            align-items: center;
+            padding: 0 15px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+            position: relative;
+        }
+
+        .sidebar-item:hover {
+            background-color: var(--grafana-hover);
+        }
+
+        .sidebar-item.active {
+            background-color: var(--grafana-blue);
+            color: #000;
+        }
+
+        .sidebar-item i {
+            font-size: 18px;
+            min-width: 25px;
+        }
+
+        .sidebar-text {
+            margin-left: 15px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            white-space: nowrap;
+        }
+
+        .sidebar:hover .sidebar-text {
+            opacity: 1;
+        }
+
+        /* Top Navigation */
+        .topnav {
+            position: fixed;
+            top: 0;
+            left: 55px;
+            right: 0;
+            height: 55px;
+            background-color: var(--grafana-bg-light);
+            border-bottom: 1px solid var(--grafana-border);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            z-index: 999;
+        }
+
+        .topnav-title {
+            font-size: 18px;
+            font-weight: 500;
+        }
+
+        .topnav-actions {
+            margin-left: auto;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .refresh-interval {
+            background: var(--grafana-panel-bg);
+            border: 1px solid var(--grafana-border);
+            padding: 5px 10px;
+            border-radius: 4px;
+            color: var(--grafana-text);
+            font-size: 12px;
+        }
+
+        .time-range {
+            background: var(--grafana-blue);
+            color: #000;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+            border: none;
+            cursor: pointer;
+        }
+
+        /* Main Content */
+        .main-content {
+            margin-left: 55px;
+            margin-top: 55px;
+            padding: 20px;
+            min-height: calc(100vh - 55px);
+        }
+
+        /* Dashboard Grid */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 15px;
+            grid-auto-rows: min-content;
+        }
+
+        /* Panel Styles */
+        .panel {
+            background-color: var(--grafana-panel-bg);
+            border: 1px solid var(--grafana-border);
+            border-radius: 2px;
+            position: relative;
+            min-height: 200px;
+        }
+
+        .panel-header {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--grafana-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: rgba(24, 27, 31, 0.8);
+        }
+
+        .panel-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--grafana-text);
+        }
+
+        .panel-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .panel-action {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            border-radius: 2px;
+            opacity: 0.7;
+            transition: opacity 0.2s ease;
+        }
+
+        .panel-action:hover {
+            opacity: 1;
+            background-color: var(--grafana-hover);
+        }
+
+        .panel-content {
+            padding: 15px;
+            height: calc(100% - 37px);
+        }
+
+        /* Grid Sizes */
+        .col-3 { grid-column: span 3; }
+        .col-4 { grid-column: span 4; }
+        .col-6 { grid-column: span 6; }
+        .col-8 { grid-column: span 8; }
+        .col-12 { grid-column: span 12; }
+
+        /* Stat Panel */
+        .stat-panel .panel-content {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 36px;
+            font-weight: 300;
+            line-height: 1;
+            margin-bottom: 5px;
+        }
+
+        .stat-unit {
+            font-size: 14px;
+            color: var(--grafana-text-muted);
+        }
+
+        .stat-green { color: var(--grafana-green); }
+        .stat-blue { color: var(--grafana-blue); }
+        .stat-orange { color: var(--grafana-orange); }
+        .stat-red { color: var(--grafana-red); }
+
+        /* Chart Container */
+        .chart-container {
+            position: relative;
+            height: 250px;
+            width: 100%;
+        }
+
+        /* Route List */
+        .route-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .route-item {
+            padding: 10px;
+            border-bottom: 1px solid var(--grafana-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .route-item:last-child {
+            border-bottom: none;
+        }
+
+        .route-info {
+            flex: 1;
+        }
+
+        .route-method {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 2px;
+            font-size: 11px;
+            font-weight: 500;
+            margin-right: 8px;
+        }
+
+        .method-GET { background-color: var(--grafana-green); color: #000; }
+        .method-POST { background-color: var(--grafana-blue); color: #000; }
+        .method-PUT { background-color: var(--grafana-orange); color: #000; }
+        .method-DELETE { background-color: var(--grafana-red); color: #fff; }
+
+        .route-path {
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            color: var(--grafana-text-muted);
+        }
+
+        .route-stats {
+            text-align: right;
+            font-size: 12px;
+        }
+
+        .route-count {
+            color: var(--grafana-blue);
+            font-weight: 500;
+        }
+
+        .route-time {
+            color: var(--grafana-text-muted);
+        }
+
+        .route-errors {
+            margin-top: 8px;
+            padding-left: 15px;
+            font-size: 11px;
+            color: var(--grafana-red);
+            list-style-position: inside;
+        }
+
+        .route-errors li {
+            margin-bottom: 4px;
+        }
+
+        /* Status badges */
+        .status-badges {
+            display: flex;
+            gap: 4px;
+            margin-top: 5px;
+        }
+
+        .status-badge {
+            padding: 1px 4px;
+            border-radius: 2px;
+            font-size: 10px;
+            font-weight: 500;
+        }
+
+        .status-2xx { background-color: var(--grafana-green); color: #000; }
+        .status-3xx { background-color: var(--grafana-yellow); color: #000; }
+        .status-4xx { background-color: var(--grafana-orange); color: #000; }
+        .status-5xx { background-color: var(--grafana-red); color: #fff; }
+
+        /* Loading state */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--grafana-text-muted);
+        }
+
+        /* Analytics specific styles */
+        .analytics-section {
+            display: none;
+        }
+
+        .analytics-section.active {
+            display: block;
+        }
+
+        /* Timeline specific styles */
+        .timeline-section {
+            display: none;
+        }
+
+        .timeline-section.active {
+            display: block;
+        }
+
+        .timeline-endpoint-chart {
+            background: var(--grafana-panel-bg);
+            border: 1px solid var(--grafana-border);
+            border-radius: 4px;
+            margin-bottom: 20px;
+            padding: 15px;
+        }
+
+        .timeline-endpoint-title {
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--grafana-text);
+            margin-bottom: 15px;
+            border-bottom: 1px solid var(--grafana-border);
+            padding-bottom: 10px;
+        }
+
+        .timeline-chart-container {
+            height: 300px;
+            width: 100%;
+        }
+
+        .timeline-filters {
+            background: var(--grafana-panel-bg);
+            border: 1px solid var(--grafana-border);
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .timeline-filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .timeline-filter-label {
+            font-size: 12px;
+            color: var(--grafana-text-muted);
+            font-weight: 500;
+        }
+
+        .timeline-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .timeline-stat-card {
+            background: var(--grafana-panel-bg);
+            border: 1px solid var(--grafana-border);
+            border-radius: 4px;
+            padding: 15px;
+            text-align: center;
+        }
+
+        .timeline-stat-value {
+            font-size: 24px;
+            font-weight: 500;
+            color: var(--grafana-blue);
+            margin-bottom: 5px;
+        }
+
+        .timeline-stat-label {
+            font-size: 12px;
+            color: var(--grafana-text-muted);
+        }
+
+        /* Routes specific styles */
+        .routes-endpoint-chart {
+            background: var(--grafana-panel-bg);
+            border: 1px solid var(--grafana-border);
+            border-radius: 4px;
+            margin-bottom: 20px;
+            padding: 15px;
+        }
+
+        .routes-endpoint-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            border-bottom: 1px solid var(--grafana-border);
+            padding-bottom: 10px;
+        }
+
+        .routes-endpoint-title {
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--grafana-text);
+        }
+
+        .routes-endpoint-method {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .method-GET { background-color: var(--grafana-blue); color: #000; }
+        .method-POST { background-color: var(--grafana-green); color: #000; }
+        .method-PUT { background-color: var(--grafana-orange); color: #000; }
+        .method-DELETE { background-color: var(--grafana-red); color: #fff; }
+        .method-PATCH { background-color: var(--grafana-purple); color: #fff; }
+
+        .routes-endpoint-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: var(--grafana-bg-light);
+            border-radius: 4px;
+        }
+
+        .routes-stat-item {
+            text-align: center;
+        }
+
+        .routes-stat-value {
+            font-size: 18px;
+            font-weight: 500;
+            color: var(--grafana-text);
+            margin-bottom: 2px;
+        }
+
+        .routes-stat-label {
+            font-size: 10px;
+            color: var(--grafana-text-muted);
+            text-transform: uppercase;
+        }
+
+        .routes-chart-container {
+            height: 250px;
+            width: 100%;
+        }
+
+        .routes-error-list {
+            margin-top: 10px;
+            padding: 10px;
+            background: var(--grafana-bg-light);
+            border-radius: 4px;
+            border-left: 3px solid var(--grafana-red);
+        }
+
+        .routes-error-title {
+            font-size: 12px;
+            color: var(--grafana-red);
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        .routes-error-item {
+            font-size: 11px;
+            color: var(--grafana-text-muted);
+            margin-bottom: 4px;
+            padding-left: 10px;
+        }
+
+        .time-series-chart {
+            height: 400px;
+        }
+
+        .metric-card {
+            background: var(--grafana-panel-bg);
+            border: 1px solid var(--grafana-border);
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .metric-title {
+            font-size: 14px;
+            color: var(--grafana-text-muted);
+            margin-bottom: 10px;
+        }
+
+        .metric-value {
+            font-size: 24px;
+            font-weight: 500;
+            color: var(--grafana-text);
+        }
+
+        .metric-change {
+            font-size: 12px;
+            margin-top: 5px;
+        }
+
+        .metric-up {
+            color: var(--grafana-green);
+        }
+
+        .metric-down {
+            color: var(--grafana-red);
+        }
+
+        .analytics-filters {
+            background: var(--grafana-panel-bg);
+            border: 1px solid var(--grafana-border);
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .filter-label {
+            font-size: 12px;
+            color: var(--grafana-text-muted);
+        }
+
+        .filter-select {
+            background: var(--grafana-bg);
+            border: 1px solid var(--grafana-border);
+            color: var(--grafana-text);
+            padding: 6px 10px;
+            border-radius: 3px;
+            font-size: 13px;
+        }
+
+        .heatmap-container {
+            background: var(--grafana-panel-bg);
+            border-radius: 4px;
+            padding: 10px;
+        }
+
+        .heatmap-row {
+            display: flex;
+            gap: 2px;
+            margin-bottom: 2px;
+        }
+
+        .heatmap-cell {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            opacity: 0.8;
+        }
+
+        .heatmap-low { background-color: var(--grafana-green); opacity: 0.3; }
+        .heatmap-medium { background-color: var(--grafana-orange); opacity: 0.6; }
+        .heatmap-high { background-color: var(--grafana-red); opacity: 0.9; }
+
+        .endpoint-performance {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .endpoint-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--grafana-border);
+        }
+
+        .endpoint-item:last-child {
+            border-bottom: none;
+        }
+
+        .endpoint-name {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .endpoint-metrics {
+            display: flex;
+            gap: 15px;
+            font-size: 11px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+            }
+            
+            .main-content {
+                margin-left: 0;
+            }
+            
+            .topnav {
+                left: 0;
+            }
+            
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .col-3, .col-4, .col-6, .col-8, .col-12 {
+                grid-column: span 1;
+            }
+
+            .analytics-filters {
+                flex-direction: column;
+                align-items: stretch;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar">
+        <div class="sidebar-item active" data-section="dashboard">
+            <i class="fas fa-tachometer-alt"></i>
+            <span class="sidebar-text">Dashboard</span>
+        </div>
+        <div class="sidebar-item" data-section="analytics">
+            <i class="fas fa-chart-line"></i>
+            <span class="sidebar-text">Analytics</span>
+        </div>
+        <div class="sidebar-item" data-section="routes">
+            <i class="fas fa-list"></i>
+            <span class="sidebar-text">Routes</span>
+        </div>
+        <div class="sidebar-item" data-section="timeline">
+            <i class="fas fa-chart-area"></i>
+            <span class="sidebar-text">Timeline</span>
+        </div>
+        <div class="sidebar-item">
+            <i class="fas fa-exclamation-triangle"></i>
+            <span class="sidebar-text">Alerts</span>
+        </div>
+        <div class="sidebar-item">
+            <i class="fas fa-cog"></i>
+            <span class="sidebar-text">Settings</span>
+        </div>
+    </nav>
+
+    <!-- Top Navigation -->
+    <nav class="topnav">
+        <div class="topnav-title" id="page-title">API Analytics Dashboard</div>
+        <div class="topnav-actions">
+            <div class="refresh-interval">
+                <i class="fas fa-sync-alt"></i> 5s
+            </div>
+            <button class="time-range">
+                <i class="fas fa-clock"></i> Last 1h
+            </button>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Dashboard Section -->
+        <div id="dashboard-section" class="dashboard-section">
+            <div class="dashboard-grid">
+                <!-- Stat Panels -->
+                <div class="panel stat-panel col-3">
+                    <div class="panel-header">
+                        <div class="panel-title">Total Routes</div>
+                        <div class="panel-actions">
+                            <div class="panel-action"><i class="fas fa-ellipsis-v"></i></div>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div id="total-routes" class="stat-value stat-blue">0</div>
+                        <div class="stat-unit">endpoints</div>
+                    </div>
+                </div>
+
+                <div class="panel stat-panel col-3">
+                    <div class="panel-header">
+                        <div class="panel-title">Total Requests</div>
+                        <div class="panel-actions">
+                            <div class="panel-action"><i class="fas fa-ellipsis-v"></i></div>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div id="total-requests" class="stat-value stat-green">0</div>
+                        <div class="stat-unit">requests</div>
+                    </div>
+                </div>
+
+                <div class="panel stat-panel col-3">
+                    <div class="panel-header">
+                        <div class="panel-title">Avg Response Time</div>
+                        <div class="panel-actions">
+                            <div class="panel-action"><i class="fas fa-ellipsis-v"></i></div>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div id="avg-response" class="stat-value stat-orange">0</div>
+                        <div class="stat-unit">ms</div>
+                    </div>
+                </div>
+
+                <div class="panel stat-panel col-3">
+                    <div class="panel-header">
+                        <div class="panel-title">Error Rate</div>
+                        <div class="panel-actions">
+                            <div class="panel-action"><i class="fas fa-ellipsis-v"></i></div>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div id="error-rate" class="stat-value stat-red">0</div>
+                        <div class="stat-unit">%</div>
+                    </div>
+                </div>
+
+                <!-- Charts -->
+                <div class="panel col-6">
+                    <div class="panel-header">
+                        <div class="panel-title">Request Methods Distribution</div>
+                        <div class="panel-actions">
+                            <div class="panel-action"><i class="fas fa-expand-arrows-alt"></i></div>
+                            <div class="panel-action"><i class="fas fa-ellipsis-v"></i></div>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="chart-container">
+                            <canvas id="methodsChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel col-6">
+                    <div class="panel-header">
+                        <div class="panel-title">Status Codes Distribution</div>
+                        <div class="panel-actions">
+                            <div class="panel-action"><i class="fas fa-expand-arrows-alt"></i></div>
+                            <div class="panel-action"><i class="fas fa-ellipsis-v"></i></div>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="chart-container">
+                            <canvas id="statusChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Response Times Chart -->
+                <div class="panel col-8">
+                    <div class="panel-header">
+                        <div class="panel-title">Response Times by Endpoint</div>
+                        <div class="panel-actions">
+                            <div class="panel-action"><i class="fas fa-expand-arrows-alt"></i></div>
+                            <div class="panel-action"><i class="fas fa-ellipsis-v"></i></div>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="chart-container">
+                            <canvas id="responseChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Total Requests Over Time Chart -->
+                <div class="panel col-12">
+                    <div class="panel-header">
+                        <div class="panel-title">Total Requests Over Time</div>
+                        <div class="panel-actions">
+                            <div class="panel-action"><i class="fas fa-expand-arrows-alt"></i></div>
+                            <div class="panel-action"><i class="fas fa-ellipsis-v"></i></div>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="chart-container">
+                            <canvas id="requestsTimeChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Route List -->
+                <div class="panel col-4">
+                    <div class="panel-header">
+                        <div class="panel-title">API Endpoints</div>
+                        <div class="panel-actions">
+                            <div class="panel-action"><i class="fas fa-search"></i></div>
+                            <div class="panel-action"><i class="fas fa-ellipsis-v"></i></div>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div id="routes-list" class="route-list loading">
+                            <div class="loading">Loading routes...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analytics Section -->
+        <div id="analytics-section" class="analytics-section">
+            <!-- Analytics Filters -->
+            <div class="analytics-filters">
+                <div class="filter-group">
+                    <div class="filter-label">Time Range</div>
+                    <select class="filter-select" id="analytics-time-range">
+                        <option value="1h">Last 1 hour</option>
+                        <option value="6h">Last 6 hours</option>
+                        <option value="24h">Last 24 hours</option>
+                        <option value="7d">Last 7 days</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <div class="filter-label">Endpoint</div>
+                    <select class="filter-select" id="analytics-endpoint">
+                        <option value="all">All Endpoints</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <div class="filter-label">Method</div>
+                    <select class="filter-select" id="analytics-method">
+                        <option value="all">All Methods</option>
+                        <option value="GET">GET</option>
+                        <option value="POST">POST</option>
+                        <option value="PUT">PUT</option>
+                        <option value="DELETE">DELETE</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="dashboard-grid">
+                <!-- Key Metrics -->
+                <div class="panel col-3">
+                    <div class="panel-header">
+                        <div class="panel-title">Requests per Minute</div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="metric-card">
+                            <div class="metric-title">Current</div>
+                            <div class="metric-value" id="rpm-current">0</div>
+                            <div class="metric-change metric-up" id="rpm-change">+0% from last period</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel col-3">
+                    <div class="panel-header">
+                        <div class="panel-title">P95 Response Time</div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="metric-card">
+                            <div class="metric-title">95th Percentile</div>
+                            <div class="metric-value" id="p95-response">0ms</div>
+                            <div class="metric-change" id="p95-change">+0% from last period</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel col-3">
+                    <div class="panel-header">
+                        <div class="panel-title">Success Rate</div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="metric-card">
+                            <div class="metric-title">2xx Responses</div>
+                            <div class="metric-value" id="success-rate">0%</div>
+                            <div class="metric-change" id="success-change">+0% from last period</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel col-3">
+                    <div class="panel-header">
+                        <div class="panel-title">Active Endpoints</div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="metric-card">
+                            <div class="metric-title">Receiving Traffic</div>
+                            <div class="metric-value" id="active-endpoints">0</div>
+                            <div class="metric-change" id="active-change">+0 from last period</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Time Series Chart -->
+                <div class="panel col-8">
+                    <div class="panel-header">
+                        <div class="panel-title">Request Rate & Response Time Trends</div>
+                        <div class="panel-actions">
+                            <div class="panel-action"><i class="fas fa-expand-arrows-alt"></i></div>
+                            <div class="panel-action"><i class="fas fa-ellipsis-v"></i></div>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="chart-container time-series-chart">
+                            <canvas id="timeSeriesChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Request Heatmap -->
+                <div class="panel col-4">
+                    <div class="panel-header">
+                        <div class="panel-title">Request Volume Heatmap</div>
+                    </div>
+                    <div class="panel-content">
+                        <div id="request-heatmap" class="heatmap-container">
+                            <div class="loading">Generating heatmap...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Performance by Endpoint -->
+                <div class="panel col-6">
+                    <div class="panel-header">
+                        <div class="panel-title">Endpoint Performance</div>
+                    </div>
+                    <div class="panel-content">
+                        <div id="endpoint-performance" class="endpoint-performance">
+                            <div class="loading">Loading performance data...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Error Analysis -->
+                <div class="panel col-6">
+                    <div class="panel-header">
+                        <div class="panel-title">Error Analysis</div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="chart-container">
+                            <canvas id="errorChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Routes Section (placeholder) -->
+        <div id="routes-section" class="analytics-section">
+            <!-- Routes Filters -->
+            <div class="analytics-filters">
+                <div class="analytics-filter-group">
+                    <label class="analytics-filter-label">Method Filter</label>
+                    <select id="routes-method-filter" class="analytics-select">
+                        <option value="all">All Methods</option>
+                        <option value="GET">GET</option>
+                        <option value="POST">POST</option>
+                        <option value="PUT">PUT</option>
+                        <option value="DELETE">DELETE</option>
+                        <option value="PATCH">PATCH</option>
+                    </select>
+                </div>
+                <div class="analytics-filter-group">
+                    <label class="analytics-filter-label">Sort By</label>
+                    <select id="routes-sort-filter" class="analytics-select">
+                        <option value="requests">Total Requests</option>
+                        <option value="response_time">Response Time</option>
+                        <option value="errors">Error Count</option>
+                        <option value="endpoint">Endpoint Name</option>
+                    </select>
+                </div>
+                <button id="routes-refresh" class="analytics-button">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+
+            <!-- Routes Overview Stats -->
+            <div class="dashboard-grid">
+                <div class="panel col-3">
+                    <div class="panel-header">
+                        <div class="panel-title">Total Endpoints</div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="metric-card">
+                            <div class="metric-value" id="routes-total-endpoints">0</div>
+                            <div class="metric-title">Active Routes</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="panel col-3">
+                    <div class="panel-header">
+                        <div class="panel-title">Most Active</div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="metric-card">
+                            <div class="metric-value" id="routes-most-active">-</div>
+                            <div class="metric-title">Highest Traffic</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="panel col-3">
+                    <div class="panel-header">
+                        <div class="panel-title">Slowest Route</div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="metric-card">
+                            <div class="metric-value" id="routes-slowest">-</div>
+                            <div class="metric-title">Response Time</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="panel col-3">
+                    <div class="panel-header">
+                        <div class="panel-title">Error Rate</div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="metric-card">
+                            <div class="metric-value" id="routes-error-rate">0%</div>
+                            <div class="metric-title">Overall Errors</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Routes Charts Container -->
+            <div id="routes-charts-container">
+                <!-- Charts will be dynamically generated here for each endpoint -->
+            </div>
+        </div>
+
+        <!-- Timeline Section -->
+        <div id="timeline-section" class="timeline-section">
+            <!-- Timeline Filters -->
+            <div class="timeline-filters">
+                <div class="timeline-filter-group">
+                    <label class="timeline-filter-label">Time Range</label>
+                    <select id="timeline-time-range" class="analytics-select">
+                        <option value="1h">Last 1 Hour</option>
+                        <option value="6h">Last 6 Hours</option>
+                        <option value="1d">Last 24 Hours</option>
+                        <option value="7d">Last 7 Days</option>
+                    </select>
+                </div>
+                <div class="timeline-filter-group">
+                    <label class="timeline-filter-label">Endpoint Filter</label>
+                    <select id="timeline-endpoint-filter" class="analytics-select">
+                        <option value="all">All Endpoints</option>
+                    </select>
+                </div>
+                <div class="timeline-filter-group">
+                    <label class="timeline-filter-label">Method Filter</label>
+                    <select id="timeline-method-filter" class="analytics-select">
+                        <option value="all">All Methods</option>
+                        <option value="GET">GET</option>
+                        <option value="POST">POST</option>
+                        <option value="PUT">PUT</option>
+                        <option value="DELETE">DELETE</option>
+                        <option value="PATCH">PATCH</option>
+                    </select>
+                </div>
+                <button id="timeline-refresh" class="analytics-button">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+
+            <!-- Timeline Stats -->
+            <div class="timeline-stats">
+                <div class="timeline-stat-card">
+                    <div class="timeline-stat-value" id="timeline-total-requests">0</div>
+                    <div class="timeline-stat-label">Total Requests</div>
+                </div>
+                <div class="timeline-stat-card">
+                    <div class="timeline-stat-value" id="timeline-unique-endpoints">0</div>
+                    <div class="timeline-stat-label">Unique Endpoints</div>
+                </div>
+                <div class="timeline-stat-card">
+                    <div class="timeline-stat-value" id="timeline-error-rate">0%</div>
+                    <div class="timeline-stat-label">Error Rate</div>
+                </div>
+                <div class="timeline-stat-card">
+                    <div class="timeline-stat-value" id="timeline-avg-response">0ms</div>
+                    <div class="timeline-stat-label">Avg Response Time</div>
+                </div>
+            </div>
+
+            <!-- Timeline Charts Container -->
+            <div id="timeline-charts-container">
+                <!-- Charts will be dynamically generated here for each endpoint -->
+            </div>
+        </div>
+    </main>
+    <script>
+        // Chart instances
+        let methodsChart, responseChart, statusChart, timeSeriesChart, errorChart, requestsTimeChart;
+
+        // Data stores
+        let currentStats = [];
+
+        // --- Navigation ---
+        function initNavigation() {
+            document.querySelectorAll('.sidebar-item').forEach(item => {
+                item.addEventListener('click', function() {
+                    const section = this.getAttribute('data-section');
+                    if (section) {
+                        switchSection(section);
+                        document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+                        this.classList.add('active');
+                    }
+                });
+            });
+        }
+
+        function switchSection(section) {
+            document.querySelectorAll('[id$="-section"]').forEach(s => s.style.display = 'none');
+            const targetSection = document.getElementById(section + '-section');
+            if (targetSection) {
+                targetSection.style.display = 'block';
+            }
+
+            const titles = {
+                'dashboard': 'API Analytics Dashboard',
+                'analytics': 'Advanced Analytics',
+                'routes': 'Route Management',
+                'timeline': 'Endpoint Timeline'
+            };
+            document.getElementById('page-title').textContent = titles[section] || 'API Analytics Dashboard';
+
+            if (section === 'analytics') {
+                initAnalyticsSection();
+            } else if (section === 'timeline') {
+                initTimelineSection();
+            }
+        }
+
+        // --- Chart Initializers ---
+        function initCharts() {
+            Chart.defaults.color = '#d9d9d9';
+            Chart.defaults.font.family = "'Roboto', sans-serif";
+
+            // Dashboard Charts
+            const methodsCtx = document.getElementById('methodsChart').getContext('2d');
+            methodsChart = new Chart(methodsCtx, {
+                type: 'doughnut',
+                data: { labels: [], datasets: [{ data: [], backgroundColor: ['#73bf69', '#52c5f7', '#ffb74d', '#f2495c', '#b877d9'], borderWidth: 0, cutout: '60%' }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } } } }
+            });
+
+            const responseCtx = document.getElementById('responseChart').getContext('2d');
+            responseChart = new Chart(responseCtx, {
+                type: 'bar',
+                data: { labels: [], datasets: [{ label: 'Response Time (ms)', data: [], backgroundColor: 'rgba(82, 197, 247, 0.8)' }] },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, grid: { color: '#262626' } }, x: { grid: { color: '#262626' } } } }
+            });
+
+            const statusCtx = document.getElementById('statusChart').getContext('2d');
+            statusChart = new Chart(statusCtx, {
+                type: 'pie',
+                data: { labels: [], datasets: [{ data: [], backgroundColor: ['#73bf69', '#fade2a', '#ffb74d', '#f2495c'], borderWidth: 0 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } } } }
+            });
+
+            // Requests Over Time Chart
+            const requestsTimeCtx = document.getElementById('requestsTimeChart').getContext('2d');
+            requestsTimeChart = new Chart(requestsTimeCtx, {
+                type: 'line',
+                data: { 
+                    labels: [], 
+                    datasets: [{ 
+                        label: 'Total Requests', 
+                        data: [], 
+                        borderColor: '#52c5f7',
+                        backgroundColor: 'rgba(82, 197, 247, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }] 
+                },
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false, 
+                    scales: { 
+                        y: { 
+                            beginAtZero: true, 
+                            grid: { color: '#262626' },
+                            ticks: { color: '#d9d9d9' }
+                        }, 
+                        x: { 
+                            grid: { color: '#262626' },
+                            ticks: { color: '#d9d9d9' }
+                        } 
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                color: '#d9d9d9',
+                                usePointStyle: true
+                            }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: 'rgba(26, 26, 26, 0.9)',
+                            titleColor: '#d9d9d9',
+                            bodyColor: '#d9d9d9',
+                            borderColor: '#52c5f7',
+                            borderWidth: 1
+                        }
+                    },
+                    interaction: {
+                        mode: 'nearest',
+                        axis: 'x',
+                        intersect: false
+                    }
+                }
+            });
+        }
+
+        function initAnalyticsCharts() {
+            if (timeSeriesChart) return; // Already initialized
+
+            const timeSeriesCtx = document.getElementById('timeSeriesChart').getContext('2d');
+            timeSeriesChart = new Chart(timeSeriesCtx, {
+                type: 'line',
+                data: { labels: [], datasets: [
+                    { label: 'Requests/min', data: [], borderColor: '#52c5f7', yAxisID: 'y' },
+                    { label: 'Avg Response Time (ms)', data: [], borderColor: '#ffb74d', yAxisID: 'y1' }
+                ]},
+                options: { responsive: true, maintainAspectRatio: false, scales: { x: { type: 'time', time: { unit: 'minute' }, grid: { color: '#262626' } }, y: { position: 'left', grid: { color: '#262626' } }, y1: { position: 'right', grid: { drawOnChartArea: false } } } }
+            });
+
+            const errorCtx = document.getElementById('errorChart').getContext('2d');
+            errorChart = new Chart(errorCtx, {
+                type: 'bar',
+                data: { labels: [], datasets: [{ label: 'Error Count', data: [], backgroundColor: '#f2495c' }] },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, grid: { color: '#262626' } }, x: { grid: { color: '#262626' } } } }
+            });
+        }
+
+        // --- Section Initializers ---
+        function initAnalyticsSection() {
+            initAnalyticsCharts();
+            
+            // Setup filter listeners
+            document.getElementById('analytics-endpoint').onchange = updateAnalyticsData;
+            document.getElementById('analytics-method').onchange = updateAnalyticsData;
+
+            updateAnalyticsData();
+        }
+
+        // Timeline Charts Storage
+        let timelineCharts = {};
+
+        function initTimelineSection() {
+            // Setup filter listeners
+            document.getElementById('timeline-endpoint-filter').onchange = updateTimelineData;
+            document.getElementById('timeline-method-filter').onchange = updateTimelineData;
+            document.getElementById('timeline-time-range').onchange = updateTimelineData;
+            document.getElementById('timeline-refresh').onclick = () => {
+                updateTimelineData();
+                loadStats(); // Refresh data
+            };
+
+            // Populate endpoint filter
+            populateTimelineEndpointFilter();
+            updateTimelineData();
+        }
+
+        function populateTimelineEndpointFilter() {
+            const select = document.getElementById('timeline-endpoint-filter');
+            // Clear existing options except "All Endpoints"
+            while (select.children.length > 1) {
+                select.removeChild(select.lastChild);
+            }
+
+            const endpoints = new Set(currentStats.map(s => `${s.method} ${s.path}`));
+            endpoints.forEach(endpoint => {
+                const option = document.createElement('option');
+                option.value = endpoint;
+                option.textContent = endpoint;
+                select.appendChild(option);
+            });
+        }
+
+        function updateTimelineData() {
+            const endpointFilter = document.getElementById('timeline-endpoint-filter').value;
+            const methodFilter = document.getElementById('timeline-method-filter').value;
+            const timeRange = document.getElementById('timeline-time-range').value;
+
+            let filteredStats = currentStats;
+
+            // Apply filters
+            if (endpointFilter !== 'all') {
+                const [method, path] = endpointFilter.split(' ');
+                filteredStats = filteredStats.filter(s => s.method === method && s.path === path);
+            }
+            if (methodFilter !== 'all') {
+                filteredStats = filteredStats.filter(s => s.method === methodFilter);
+            }
+
+            // Update timeline stats
+            updateTimelineStats(filteredStats);
+
+            // Update timeline charts
+            updateTimelineCharts(filteredStats);
+        }
+
+        function updateTimelineStats(stats) {
+            const totalRequests = stats.reduce((sum, s) => sum + s.count, 0);
+            const uniqueEndpoints = new Set(stats.map(s => s.path)).size;
+            const totalDuration = stats.reduce((sum, s) => sum + s.avg_response * s.count, 0);
+            const avgResponse = totalRequests ? totalDuration / totalRequests / 1e6 : 0;
+
+            // Calculate error rate
+            let totalErrors = 0;
+            stats.forEach(s => {
+                Object.entries(s.status_codes).forEach(([code, count]) => {
+                    if (code.startsWith('4') || code.startsWith('5')) {
+                        totalErrors += count;
+                    }
+                });
+            });
+            const errorRate = totalRequests ? (totalErrors / totalRequests * 100) : 0;
+
+            document.getElementById('timeline-total-requests').textContent = totalRequests;
+            document.getElementById('timeline-unique-endpoints').textContent = uniqueEndpoints;
+            document.getElementById('timeline-error-rate').textContent = errorRate.toFixed(1) + '%';
+            document.getElementById('timeline-avg-response').textContent = avgResponse.toFixed(0) + 'ms';
+        }
+
+        function updateTimelineCharts(stats) {
+            const container = document.getElementById('timeline-charts-container');
+            container.innerHTML = ''; // Clear existing charts
+
+            // Group stats by endpoint
+            const endpointGroups = {};
+            stats.forEach(stat => {
+                const key = `${stat.method} ${stat.path}`;
+                if (!endpointGroups[key]) {
+                    endpointGroups[key] = [];
+                }
+                endpointGroups[key].push(stat);
+            });
+
+            // Create a chart for each endpoint
+            Object.entries(endpointGroups).forEach(([endpoint, endpointStats]) => {
+                createTimelineChart(endpoint, endpointStats);
+            });
+        }
+
+        function createTimelineChart(endpoint, stats) {
+            const container = document.getElementById('timeline-charts-container');
+            
+            // Create chart container
+            const chartDiv = document.createElement('div');
+            chartDiv.className = 'timeline-endpoint-chart';
+            chartDiv.innerHTML = `
+                <div class="timeline-endpoint-title">${endpoint}</div>
+                <div class="timeline-chart-container">
+                    <canvas id="timeline-chart-${endpoint.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '')}"></canvas>
+                </div>
+            `;
+            container.appendChild(chartDiv);
+
+            const canvasId = `timeline-chart-${endpoint.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '')}`;
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+
+            // Prepare data for timeline chart
+            const timelineData = prepareTimelineData(stats);
+
+            // Create chart
+            const chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: timelineData.labels,
+                    datasets: [
+                        {
+                            label: '2xx Success',
+                            data: timelineData.status2xx,
+                            borderColor: '#73bf69',
+                            backgroundColor: 'rgba(115, 191, 105, 0.1)',
+                            fill: true
+                        },
+                        {
+                            label: '4xx Client Error',
+                            data: timelineData.status4xx,
+                            borderColor: '#ffb74d',
+                            backgroundColor: 'rgba(255, 183, 77, 0.1)',
+                            fill: true
+                        },
+                        {
+                            label: '5xx Server Error',
+                            data: timelineData.status5xx,
+                            borderColor: '#f2495c',
+                            backgroundColor: 'rgba(242, 73, 92, 0.1)',
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'minute',
+                                displayFormats: {
+                                    minute: 'HH:mm'
+                                }
+                            },
+                            grid: {
+                                color: '#262626'
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            stacked: false,
+                            grid: {
+                                color: '#262626'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 20
+                            }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false
+                        }
+                    },
+                    interaction: {
+                        mode: 'nearest',
+                        axis: 'x',
+                        intersect: false
+                    }
+                }
+            });
+
+            // Store chart reference for cleanup
+            timelineCharts[endpoint] = chart;
+        }
+
+        function prepareTimelineData(stats) {
+            // Generate time labels (last 60 minutes by default)
+            const now = new Date();
+            const labels = [];
+            const status2xx = [];
+            const status4xx = [];
+            const status5xx = [];
+
+            // Create 60-minute timeline
+            for (let i = 59; i >= 0; i--) {
+                const time = new Date(now.getTime() - i * 60000); // 60 seconds ago
+                labels.push(time);
+
+                // For demonstration, create simulated timeline data based on current stats
+                // In a real implementation, you would have historical data
+                const stat = stats[0]; // Use first stat as base
+                if (stat) {
+                    // Simulate timeline data with some randomness
+                    const baseMultiplier = Math.random() * 0.5 + 0.5; // 0.5 to 1.0
+                    
+                    let count2xx = 0, count4xx = 0, count5xx = 0;
+                    Object.entries(stat.status_codes).forEach(([code, count]) => {
+                        const timelineCount = Math.floor(count * baseMultiplier / 60); // Distribute over time
+                        if (code.startsWith('2')) count2xx += timelineCount;
+                        else if (code.startsWith('4')) count4xx += timelineCount;
+                        else if (code.startsWith('5')) count5xx += timelineCount;
+                    });
+
+                    status2xx.push(count2xx);
+                    status4xx.push(count4xx);
+                    status5xx.push(count5xx);
+                } else {
+                    status2xx.push(0);
+                    status4xx.push(0);
+                    status5xx.push(0);
+                }
+            }
+
+            return { labels, status2xx, status4xx, status5xx };
+        }
+
+        // --- Data Fetching and Updates ---
+        function loadStats() {
+            fetch('/api/stats')
+                .then(r => r.json())
+                .then(stats => {
+                    currentStats = stats || [];
+                    updateDashboard();
+                    if (document.getElementById('analytics-section').style.display === 'block') {
+                        updateAnalyticsData();
+                    }
+                    if (document.getElementById('timeline-section').style.display === 'block') {
+                        updateTimelineData();
+                    }
+                    populateEndpointFilter();
+                    populateTimelineEndpointFilter();
+                })
+                .catch(err => console.error('Failed to load stats:', err));
+        }
+
+        function populateEndpointFilter() {
+            const select = document.getElementById('analytics-endpoint');
+            const existingOptions = new Set(Array.from(select.options).map(o => o.value));
+            const newEndpoints = new Set(currentStats.map(s => `${s.method} ${s.path}`));
+
+            newEndpoints.forEach(endpoint => {
+                if (!existingOptions.has(endpoint)) {
+                    const option = document.createElement('option');
+                    option.value = endpoint;
+                    option.textContent = endpoint;
+                    select.appendChild(option);
+                }
+            });
+        }
+
+        function updateDashboard() {
+            updateOverview(currentStats);
+            updateChartsAndList(currentStats);
+        }
+        
+        function updateAnalyticsData() {
+            const endpointFilter = document.getElementById('analytics-endpoint').value;
+            const methodFilter = document.getElementById('analytics-method').value;
+
+            let filteredStats = currentStats;
+
+            if (endpointFilter !== 'all') {
+                const [method, path] = endpointFilter.split(' ');
+                filteredStats = filteredStats.filter(s => s.method === method && s.path === path);
+            }
+            if (methodFilter !== 'all') {
+                filteredStats = filteredStats.filter(s => s.method === methodFilter);
+            }
+
+            // Update Key Metrics
+            const totalRequests = filteredStats.reduce((sum, s) => sum + s.count, 0);
+            const totalDuration = filteredStats.reduce((sum, s) => sum + s.avg_response * s.count, 0);
+            const avgResponse = totalRequests ? totalDuration / totalRequests / 1e6 : 0;
+            
+            document.getElementById('rpm-current').textContent = (totalRequests / 60).toFixed(1); // Simplified RPM
+            document.getElementById('p95-response').textContent = (avgResponse * 1.5).toFixed(0) + 'ms'; // Simplified P95
+
+            const successCount = filteredStats.reduce((sum, s) => sum + Object.entries(s.status_codes).filter(([c]) => c.startsWith('2')).reduce((a, [,v]) => a + v, 0), 0);
+            document.getElementById('success-rate').textContent = totalRequests ? ((successCount / totalRequests) * 100).toFixed(1) + '%' : '0%';
+            document.getElementById('active-endpoints').textContent = new Set(filteredStats.map(s => s.path)).size;
+
+            // Update Endpoint Performance List
+            const performanceHTML = filteredStats.map(s => `
+                <div class="endpoint-item">
+                    <div class="endpoint-name">${s.method} ${s.path}</div>
+                    <div class="endpoint-metrics">
+                        <span>RPM: ${(s.count / 60).toFixed(1)}</span>
+                        <span>Avg: ${(s.avg_response / 1e6).toFixed(0)}ms</span>
+                        <span>Errors: ${s.errors.length}</span>
+                    </div>
+                </div>`).join('');
+            document.getElementById('endpoint-performance').innerHTML = performanceHTML || '<div class="loading">No data for this filter.</div>';
+
+            // Update Error Analysis Chart
+            const errorData = filteredStats.filter(s => s.errors.length > 0);
+            errorChart.data.labels = errorData.map(s => `${s.method} ${s.path}`);
+            errorChart.data.datasets[0].data = errorData.map(s => s.errors.length);
+            errorChart.update();
+            
+            // Update Time Series (simplified for now, needs historical data for real trends)
+            timeSeriesChart.data.labels = filteredStats.map(s => new Date(s.last_accessed));
+            timeSeriesChart.data.datasets[0].data = filteredStats.map(s => s.count);
+            timeSeriesChart.data.datasets[1].data = filteredStats.map(s => s.avg_response / 1e6);
+            timeSeriesChart.update();
+        }
+
+        function updateOverview(stats) {
+            document.getElementById('total-routes').innerText = stats.length;
+            const totalReq = stats.reduce((sum, s) => sum + s.count, 0);
+            document.getElementById('total-requests').innerText = totalReq.toLocaleString();
+            const avgResp = stats.length ? Math.round(stats.reduce((sum, s) => sum + s.avg_response, 0) / stats.length / 1e6) : 0;
+            document.getElementById('avg-response').innerText = avgResp;
+            const errors = stats.reduce((sum, s) => sum + (s.errors ? s.errors.length : 0), 0);
+            const errorRate = totalReq ? ((errors / totalReq) * 100).toFixed(1) : 0;
+            document.getElementById('error-rate').innerText = errorRate;
+        }
+
+        function updateChartsAndList(stats) {
+            const routesList = document.getElementById('routes-list');
+            if (!stats || stats.length === 0) {
+                routesList.innerHTML = '<div class="loading">No API requests captured yet.</div>';
+                return;
+            }
+
+            routesList.innerHTML = stats.map(s => {
+                const badges = Object.entries(s.status_codes)
+                    .map(([c, n]) => `<span class="status-badge status-${c[0]}xx">${c} (${n})</span>`)
+                    .join('');
+                
+                const errorList = s.errors && s.errors.length > 0
+                    ? `<ul class="route-errors">${s.errors.map(e => `<li>${e}</li>`).join('')}</ul>`
+                    : '';
+
+                return `
+                    <div class="route-item">
+                        <div class="route-info">
+                            <div>
+                                <span class="route-method method-${s.method}">${s.method}</span>
+                                <span class="route-path">${s.path}</span>
+                            </div>
+                            <div class="status-badges">${badges}</div>
+                            ${errorList}
+                        </div>
+                        <div class="route-stats">
+                            <div class="route-count">${s.count}</div>
+                            <div class="route-time">${formatDuration(s.avg_response)}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            // Update charts
+            const methodCounts = {};
+            stats.forEach(s => methodCounts[s.method] = (methodCounts[s.method] || 0) + s.count);
+            methodsChart.data.labels = Object.keys(methodCounts);
+            methodsChart.data.datasets[0].data = Object.values(methodCounts);
+            methodsChart.update();
+
+            const top10 = stats.slice(0, 10);
+            responseChart.data.labels = top10.map(s => `${s.method} ${s.path}`);
+            responseChart.data.datasets[0].data = top10.map(s => s.avg_response / 1e6);
+            responseChart.update();
+
+            const allCodes = {};
+            stats.forEach(s => 
+                Object.entries(s.status_codes).forEach(([c, n]) => 
+                    allCodes[c] = (allCodes[c] || 0) + n));
+            statusChart.data.labels = Object.keys(allCodes);
+            statusChart.data.datasets[0].data = Object.values(allCodes);
+            statusChart.update();
+
+            // Update Requests Over Time Chart
+            updateRequestsTimeChart(stats);
+        }
+
+        function updateRequestsTimeChart(stats) {
+            // Generate time series data for the last 24 hours
+            const now = new Date();
+            const timeLabels = [];
+            const requestData = [];
+            
+            // Create hourly buckets for the last 24 hours
+            for (let i = 23; i >= 0; i--) {
+                const time = new Date(now.getTime() - i * 60 * 60 * 1000); // hours ago
+                timeLabels.push(time.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
+                
+                // Simulate request distribution over time
+                // In a real implementation, you would have historical timestamped data
+                const totalRequests = stats.reduce((sum, s) => sum + s.count, 0);
+                const baseRequestsPerHour = totalRequests / 24;
+                
+                // Add some variation to make it look more realistic
+                const variation = (Math.random() - 0.5) * 0.4; // ±20% variation
+                const hourlyRequests = Math.max(0, Math.floor(baseRequestsPerHour * (1 + variation)));
+                
+                requestData.push(hourlyRequests);
+            }
+            
+            requestsTimeChart.data.labels = timeLabels;
+            requestsTimeChart.data.datasets[0].data = requestData;
+            requestsTimeChart.update();
+        }
+
+        // --- Utility Functions ---
+        function formatDuration(ns) {
+            const ms = ns / 1e6;
+            return ms < 1000 ? ms.toFixed(2) + 'ms' : (ms / 1000).toFixed(2) + 's';
+        }
+
+        // --- Initial Load ---
+        document.addEventListener('DOMContentLoaded', () => {
+            initNavigation();
+            initCharts();
+            loadStats();
+            setInterval(loadStats, 5000);
+
+            let refreshCounter = 5;
+            setInterval(() => {
+                refreshCounter = (refreshCounter <= 1) ? 5 : refreshCounter - 1;
+                document.querySelector('.refresh-interval').innerHTML = `<i class="fas fa-sync-alt"></i> ${refreshCounter}s`;
+            }, 1000);
+        });
+    </script>
+</body>
+</html>
