@@ -166,8 +166,8 @@
 
       <div class="panel chart-panel-primary col-12">
         <div class="panel-header">
-          <div class="panel-title">Performance Timeline (Avg & P95 Response Time)</div>
-          <div class="panel-subtitle">Response time average and 95th percentile over time</div>
+          <div class="panel-title">Performance Timeline (P50, P75 & P90 Response Time)</div>
+          <div class="panel-subtitle">Response time percentiles (median, 75th and 90th percentile) over time</div>
         </div>
         <div class="panel-content">
           <div class="chart-container time-series-chart">
@@ -260,14 +260,38 @@
         <h3>Endpoint Performance Analysis</h3>
       </div>
 
-      <div class="panel chart-panel-secondary col-12">
+      <div class="panel chart-panel-secondary col-6">
         <div class="panel-header">
           <div class="panel-title">Response Time by Endpoint (Top 10 Slowest)</div>
           <div class="panel-subtitle">Identify performance bottlenecks by endpoint</div>
         </div>
         <div class="panel-content">
-          <div class="chart-container endpoint-chart">
+          <div class="chart-container medium-chart">
             <canvas ref="endpointCanvas"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel chart-panel-secondary col-6">
+        <div class="panel-header">
+          <div class="panel-title">Top 10 Fastest API Endpoints</div>
+          <div class="panel-subtitle">Best performing endpoints by average response time</div>
+        </div>
+        <div class="panel-content">
+          <div class="chart-container medium-chart">
+            <canvas ref="fastestEndpointsCanvas"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel chart-panel-secondary col-12">
+        <div class="panel-header">
+          <div class="panel-title">Request Volume by Endpoint</div>
+          <div class="panel-subtitle">Traffic distribution across endpoints</div>
+        </div>
+        <div class="panel-content">
+          <div class="chart-container endpoint-chart">
+            <canvas ref="volumeByEndpointCanvas"></canvas>
           </div>
         </div>
       </div>
@@ -302,8 +326,10 @@ const endpointCanvas = ref(null);
 const avgResponseTimeCanvas = ref(null);
 const totalRequestsCanvas = ref(null);
 const errorTimelineCanvas = ref(null);
+const fastestEndpointsCanvas = ref(null);
+const volumeByEndpointCanvas = ref(null);
 
-let rpsTimelineChart, perfTimelineChart, distributionChart, statusDistributionChart, methodDistributionChart, endpointChart, avgResponseTimeChart, totalRequestsChart, errorTimelineChart;
+let rpsTimelineChart, perfTimelineChart, distributionChart, statusDistributionChart, methodDistributionChart, endpointChart, avgResponseTimeChart, totalRequestsChart, errorTimelineChart, fastestEndpointsChart, volumeByEndpointChart;
 const api = useApi();
 
 // Computed properties
@@ -387,6 +413,59 @@ const methodMetrics = computed(() => {
   });
   
   return methodCounts;
+});
+
+// Top 10 Fastest API endpoints
+const fastestEndpoints = computed(() => {
+  const data = historyData.value;
+  if (!data || !data.length) return [];
+  
+  const endpointStats = {};
+  data.forEach(d => {
+    if (d.method && d.endpoint && d.response_time && typeof d.response_time === 'number') {
+      const key = `${d.method} ${d.endpoint}`;
+      if (!endpointStats[key]) {
+        endpointStats[key] = { 
+          totalResponseTime: 0, 
+          count: 0, 
+          method: d.method, 
+          endpoint: d.endpoint.length > 30 ? d.endpoint.substring(0, 27) + '...' : d.endpoint
+        };
+      }
+      endpointStats[key].totalResponseTime += d.response_time;
+      endpointStats[key].count++;
+    }
+  });
+  
+  return Object.entries(endpointStats)
+    .map(([key, stats]) => ({
+      key,
+      avgResponse: (stats.totalResponseTime / stats.count).toFixed(1),
+      count: stats.count,
+      method: stats.method,
+      endpoint: stats.endpoint
+    }))
+    .sort((a, b) => parseFloat(a.avgResponse) - parseFloat(b.avgResponse))
+    .slice(0, 10);
+});
+
+// Volume count by endpoint
+const volumeByEndpoint = computed(() => {
+  const data = historyData.value;
+  if (!data || !data.length) return [];
+  
+  const endpointVolume = {};
+  data.forEach(d => {
+    if (d.endpoint) {
+      const shortEndpoint = d.endpoint.length > 25 ? d.endpoint.substring(0, 22) + '...' : d.endpoint;
+      endpointVolume[shortEndpoint] = (endpointVolume[shortEndpoint] || 0) + 1;
+    }
+  });
+  
+  return Object.entries(endpointVolume)
+    .map(([endpoint, count]) => ({ endpoint, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 15); // Show top 15 for better visibility
 });
 
 const apiHealthScore = computed(() => {
@@ -922,6 +1001,89 @@ const initCharts = () => {
       }
     }
   });
+
+  // Initialize Fastest Endpoints Chart
+  fastestEndpointsChart = new Chart(fastestEndpointsCanvas.value, {
+    type: 'bar',
+    data: { labels: [], datasets: [] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: 'y',
+      scales: {
+        x: { 
+          beginAtZero: true, 
+          title: { display: true, text: 'Average Response Time (ms)' },
+          ticks: {
+            callback: function(value) {
+              return value + 'ms';
+            }
+          }
+        },
+        y: {
+          ticks: {
+            maxTicksLimit: 10
+          }
+        }
+      },
+      plugins: {
+        legend: {
+          display: false
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const dataIndex = context.dataIndex;
+              const fastestData = fastestEndpoints.value;
+              if (fastestData && fastestData[dataIndex]) {
+                return `${context.parsed.x}ms (${fastestData[dataIndex].count} requests)`;
+              }
+              return `${context.parsed.x}ms`;
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // Initialize Volume by Endpoint Chart
+  volumeByEndpointChart = new Chart(volumeByEndpointCanvas.value, {
+    type: 'bar',
+    data: { labels: [], datasets: [] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: 'y',
+      scales: {
+        x: { 
+          beginAtZero: true, 
+          title: { display: true, text: 'Request Count' },
+          ticks: {
+            callback: function(value) {
+              return value.toLocaleString();
+            }
+          }
+        },
+        y: {
+          ticks: {
+            maxTicksLimit: 15
+          }
+        }
+      },
+      plugins: {
+        legend: {
+          display: false
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              return `${context.parsed.x.toLocaleString()} requests`;
+            }
+          }
+        }
+      }
+    }
+  });
 };
 
 // Update charts
@@ -968,7 +1130,7 @@ const updateCharts = () => {
   }];
   rpsTimelineChart.update();
 
-  // Performance Timeline - with Avg, P95 response times
+  // Performance Timeline - with P50, P75, P90 response times
   const perfTimelineData = {};
   data.forEach(d => {
     if (d.timestamp && d.response_time && typeof d.response_time === 'number') {
@@ -982,8 +1144,9 @@ const updateCharts = () => {
 
   // Generate complete time range with calculated percentiles
   const perfLabels = [];
-  const avgValues = [];
-  const p95Values = [];
+  const p50Values = [];
+  const p75Values = [];
+  const p90Values = [];
 
   for (let i = minutes; i >= 0; i--) {
     const time = new Date(now.getTime() - i * 60000);
@@ -992,33 +1155,45 @@ const updateCharts = () => {
     
     if (perfTimelineData[timeKey] && perfTimelineData[timeKey].length > 0) {
       const times = perfTimelineData[timeKey].sort((a, b) => a - b);
-      const avg = times.reduce((sum, t) => sum + t, 0) / times.length;
-      const p95Index = Math.floor(times.length * 0.95);
+      const p50Index = Math.floor(times.length * 0.50);
+      const p75Index = Math.floor(times.length * 0.75);
+      const p90Index = Math.floor(times.length * 0.90);
       
-      avgValues.push(avg.toFixed(1));
-      p95Values.push(times[p95Index]?.toFixed(1) || 0);
+      p50Values.push(times[p50Index]?.toFixed(1) || 0);
+      p75Values.push(times[p75Index]?.toFixed(1) || 0);
+      p90Values.push(times[p90Index]?.toFixed(1) || 0);
     } else {
-      avgValues.push(0);
-      p95Values.push(0);
+      p50Values.push(0);
+      p75Values.push(0);
+      p90Values.push(0);
     }
   }
 
   perfTimelineChart.data.labels = perfLabels;
   perfTimelineChart.data.datasets = [
     {
-      label: 'Average',
-      data: avgValues,
-      borderColor: '#52c5f7',
-      backgroundColor: 'rgba(82, 197, 247, 0.1)',
+      label: 'P50 (Median)',
+      data: p50Values,
+      borderColor: '#4CAF50',
+      backgroundColor: 'rgba(76, 175, 80, 0.1)',
       fill: false,
       tension: 0.4,
       pointRadius: 2
     },
     {
-      label: 'P95',
-      data: p95Values,
-      borderColor: '#ffb74d',
-      backgroundColor: 'rgba(255, 183, 77, 0.1)',
+      label: 'P75',
+      data: p75Values,
+      borderColor: '#FF9800',
+      backgroundColor: 'rgba(255, 152, 0, 0.1)',
+      fill: false,
+      tension: 0.4,
+      pointRadius: 2
+    },
+    {
+      label: 'P90',
+      data: p90Values,
+      borderColor: '#F44336',
+      backgroundColor: 'rgba(244, 67, 54, 0.1)',
       fill: false,
       tension: 0.4,
       pointRadius: 2
@@ -1292,6 +1467,70 @@ const updateCharts = () => {
     }];
   }
   endpointChart.update();
+
+  // Update Fastest Endpoints Chart
+  const fastestData = fastestEndpoints.value;
+  if (fastestData && fastestData.length > 0) {
+    fastestEndpointsChart.data.labels = fastestData.map(item => 
+      `${item.method} ${item.endpoint}`
+    );
+    fastestEndpointsChart.data.datasets = [{
+      label: 'Average Response Time (ms)',
+      data: fastestData.map(item => parseFloat(item.avgResponse)),
+      backgroundColor: [
+        '#10b981', '#059669', '#047857', '#065f46', '#064e3b',
+        '#52c5f7', '#3b82f6', '#2563eb', '#1d4ed8', '#1e40af'
+      ],
+      borderColor: [
+        '#10b981', '#059669', '#047857', '#065f46', '#064e3b',
+        '#52c5f7', '#3b82f6', '#2563eb', '#1d4ed8', '#1e40af'
+      ],
+      borderWidth: 1,
+      borderRadius: 4
+    }];
+  } else {
+    fastestEndpointsChart.data.labels = ['No Data Available'];
+    fastestEndpointsChart.data.datasets = [{
+      label: 'Average Response Time (ms)',
+      data: [0],
+      backgroundColor: 'rgba(156, 163, 175, 0.8)',
+      borderColor: '#9ca3af',
+      borderWidth: 1
+    }];
+  }
+  fastestEndpointsChart.update();
+
+  // Update Volume by Endpoint Chart
+  const volumeData = volumeByEndpoint.value;
+  if (volumeData && volumeData.length > 0) {
+    volumeByEndpointChart.data.labels = volumeData.map(item => item.endpoint);
+    volumeByEndpointChart.data.datasets = [{
+      label: 'Request Count',
+      data: volumeData.map(item => item.count),
+      backgroundColor: [
+        '#8b5cf6', '#7c3aed', '#6d28d9', '#5b21b6', '#4c1d95',
+        '#f59e0b', '#d97706', '#b45309', '#92400e', '#78350f',
+        '#ef4444', '#dc2626', '#b91c1c', '#991b1b', '#7f1d1d'
+      ],
+      borderColor: [
+        '#8b5cf6', '#7c3aed', '#6d28d9', '#5b21b6', '#4c1d95',
+        '#f59e0b', '#d97706', '#b45309', '#92400e', '#78350f',
+        '#ef4444', '#dc2626', '#b91c1c', '#991b1b', '#7f1d1d'
+      ],
+      borderWidth: 1,
+      borderRadius: 4
+    }];
+  } else {
+    volumeByEndpointChart.data.labels = ['No Data Available'];
+    volumeByEndpointChart.data.datasets = [{
+      label: 'Request Count',
+      data: [0],
+      backgroundColor: 'rgba(156, 163, 175, 0.8)',
+      borderColor: '#9ca3af',
+      borderWidth: 1
+    }];
+  }
+  volumeByEndpointChart.update();
 };
 
 onMounted(() => {
